@@ -1,0 +1,16 @@
+node_modules/
+dist/
+public/js/
+
+# Secrets — jamais commités, quel que soit le dossier
+**/.env
+**/.env.*
+!**/.env.example
+
+*.log
+npm-debug.log*
+coverage/
+
+.DS_Store
+.idea/
+.vscode/
