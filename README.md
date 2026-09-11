@@ -22,37 +22,140 @@ les routes métier et les vues au-delà du layout restent à construire.
 - Node 22 ou plus
 - Docker et Docker Compose
 
-## Démarrage avec Docker (recommandé)
+## Installation locale pas à pas
+
+### 1. Récupérer le projet
 
 ```bash
-cp .env.example .env    # puis remplir les mots de passe
+git clone <url-du-depot>
+cd ecoride-v2
+```
+
+### 2. Créer le fichier d'environnement
+
+```bash
+cp .env.example .env
+```
+
+Ouvrir `.env` et remplacer les valeurs `changeme` par des mots de passe de votre
+choix. Ce sont **vous** qui les définissez : MySQL crée ses comptes avec ces
+valeurs au premier démarrage.
+
+| Variable | Rôle |
+|---|---|
+| `MYSQL_PASSWORD` | mot de passe de l'utilisateur applicatif `ecoride` |
+| `MYSQL_ROOT_PASSWORD` | mot de passe administrateur du serveur MySQL |
+
+`.env` n'est jamais commité (voir [Secrets](#secrets)).
+
+### 3. Lancer les conteneurs
+
+```bash
 docker compose up --build
 ```
 
-L'application écoute sur http://localhost:3000
+Trois services démarrent : `app` (Node), `mysql` (8.4) et `mongo` (7).
+Ce terminal reste occupé par les logs — **ne pas le fermer**. Ouvrir un
+**second terminal** pour la suite (VS Code : `Ctrl + Shift + ù`).
+
+Vérifier que tout est en place :
+
+```bash
+docker compose ps
+```
+
+Les trois services doivent être `Up`, `mysql` et `mongo` marqués `healthy`.
+
+### 4. Charger le schéma et les données
+
+Les tables ne se créent pas toutes seules. Depuis le second terminal :
+
+**PowerShell (Windows)**
+
+```powershell
+$pw = (Get-Content .env | Select-String '^MYSQL_PASSWORD=').ToString().Split('=',2)[1]
+Get-Content db/schema.sql | docker compose exec -T mysql mysql -u ecoride "-p$pw" ecoride
+Get-Content db/seed.sql   | docker compose exec -T mysql mysql -u ecoride "-p$pw" ecoride
+```
+
+**Bash (Linux, macOS, Git Bash)**
+
+```bash
+set -a && . ./.env && set +a
+docker compose exec -T mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" < db/schema.sql
+docker compose exec -T mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" < db/seed.sql
+```
+
+Aucune sortie signifie que tout s'est bien passé : en ligne de commande, seules
+les erreurs s'affichent. Le message `[Warning] Using a password on the command
+line interface can be insecure` est normal et sans conséquence en local.
+
+> **Deux pièges fréquents.** L'opérateur `<` n'existe pas en PowerShell — d'où
+> `Get-Content … |`. Et l'option `-p` doit être **collée** à sa valeur
+> (`-pmonpass`) : avec un espace, MySQL prend le mot de passe pour le nom de la
+> base.
+
+### 5. Vérifier l'installation
+
+```bash
+curl http://localhost:3000/health
+```
+
+Réponse attendue :
+
+```json
+{"status":"ok","services":{"mysql":true,"mongo":true},"degraded":false}
+```
+
+Contrôler le contenu de la base :
+
+```powershell
+docker compose exec -T mysql mysql -u ecoride "-p$pw" ecoride -e "SHOW TABLES; SELECT COUNT(*) FROM users;"
+```
+
+Attendu : 7 tables et 10 utilisateurs.
+
+L'application est accessible sur **http://localhost:3000**
 
 | Route | Réponse |
 |---|---|
 | `GET /` | page HTML « EcoRide V2 OK » |
-| `GET /health` | JSON avec l'état de MySQL et Mongo |
+| `GET /health` | JSON, état de MySQL et Mongo (voir [principe 2](#trois-principes-à-connaître-avant-dajouter-du-code)) |
 
-Arrêt :
+### 6. Arrêter
 
 ```bash
-docker compose down          # garde les données
-docker compose down -v       # supprime aussi les volumes
+docker compose down          # arrête, garde les données
+docker compose down -v       # supprime aussi les volumes (base remise à zéro)
 ```
 
-## Démarrage sans Docker
+Après un `down -v`, reprendre à l'étape 4 : les données ont disparu avec le
+volume.
 
-Les bases doivent tourner séparément. Dans `.env`, remplacer les hôtes
-`mysql` et `mongo` par `localhost`.
+### Installation sans Docker
+
+Les deux bases doivent tourner séparément sur la machine. Dans `.env`, remplacer
+les hôtes `mysql` et `mongo` par `localhost`, puis :
 
 ```bash
 npm install
 npm run build:front
 npm run dev
 ```
+
+### Explorer la base avec MySQL Workbench
+
+| Champ | Valeur |
+|---|---|
+| Hostname | `127.0.0.1` |
+| Port | `3306` |
+| Username | `ecoride` |
+| Password | valeur de `MYSQL_PASSWORD` |
+| Default Schema | `ecoride` |
+
+Utiliser `127.0.0.1` plutôt que `localhost` : sous Windows, `localhost` peut se
+résoudre en IPv6 et manquer la redirection Docker. **Database → Reverse
+Engineer** génère le diagramme entité-association à partir du schéma réel.
 
 ## Commandes
 
@@ -160,8 +263,96 @@ Côté MySQL, l'inverse : une erreur remonte et devient un 500. Ne jamais
 l'avaler silencieusement — une réservation perdue sans bruit est pire
 qu'une erreur visible.
 
+## Déploiement
+
+### Workflow Git
+
+Le dépôt suit un modèle à trois niveaux. Aucun commit ne va directement sur
+`main`.
+
+```
+feature/*  →  dev  →  main
+```
+
+| Branche | Rôle |
+|---|---|
+| `main` | état livrable, stable. Reçoit uniquement des fusions depuis `dev`. |
+| `dev` | intégration continue des features terminées. |
+| `feature/*` | une branche par fonctionnalité, créée depuis `dev`. |
+
+```bash
+# Démarrer une fonctionnalité
+git switch dev
+git switch -c feature/nom-de-la-feature
+
+# … développer, committer …
+
+# Intégrer dans dev (merge explicite, l'historique garde la trace de la branche)
+git switch dev
+git merge --no-ff feature/nom-de-la-feature
+
+# Livrer : dev → main, une fois les tests verts
+git switch main
+git merge --no-ff dev
+```
+
+L'option `--no-ff` force un commit de fusion même quand l'avance est linéaire.
+L'historique montre alors quelles features ont été livrées, et quand.
+
+Règle appliquée sur ce dépôt : **pas de `push --force`, pas de réécriture des
+commits publiés.** Corriger une erreur se fait par un nouveau commit, jamais en
+modifiant l'historique que d'autres ont pu récupérer.
+
+### Intégration continue
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) s'exécute à chaque push
+sur `main` et à chaque pull request :
+
+| Étape | Commande |
+|---|---|
+| Installation | `npm ci` |
+| Types serveur | `npm run typecheck` |
+| Types front | `npx tsc -p tsconfig.front.json` |
+| Compilation | `npm run build` |
+| Tests | `npm test` |
+
+Les tests n'ont besoin d'aucune base : les services se connectent
+paresseusement, et les tests de `/health` utilisent des doublures.
+
+### Mise en production
+
+L'image est construite par [`Dockerfile`](Dockerfile) en trois étapes
+(compilation, dépendances de production, image finale). L'image finale ne
+contient ni sources TypeScript, ni dépendances de développement, et s'exécute
+sous l'utilisateur non-root `node`.
+
+```bash
+docker build -t ecoride-v2:latest .
+```
+
+Variables à fournir à l'exécution — **jamais dans l'image** :
+
+| Variable | Exemple |
+|---|---|
+| `NODE_ENV` | `production` |
+| `PORT` | `3000` |
+| `MYSQL_HOST`, `MYSQL_PORT` | hôte et port du serveur MySQL |
+| `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` | identifiants applicatifs |
+| `MONGO_URI`, `MONGO_DATABASE` | connexion MongoDB |
+
+Le schéma (`db/schema.sql`) doit être appliqué sur la base cible avant le
+premier démarrage. `db/seed.sql` contient des comptes de démonstration avec des
+mots de passe connus : **ne jamais le charger en production.**
+
+`GET /health` sert de sonde pour un orchestrateur : il renvoie `503` tant que
+MySQL est injoignable, ce qui empêche l'envoi de trafic vers une instance
+incapable de répondre.
+
 ## Secrets
 
-`.env` est ignoré par git (`**/.env` dans `.gitignore`). Seul `.env.example`
-est commité, avec des valeurs factices. Aucun mot de passe ne doit apparaître
-dans un fichier suivi.
+`.env` est ignoré par git (`**/.env` dans `.gitignore`, sous-dossiers compris).
+Seul `.env.example` est commité, avec des valeurs factices. Aucun mot de passe
+ne doit apparaître dans un fichier suivi.
+
+Les modèles MySQL Workbench (`*.mwb`) sont également ignorés : ce sont des
+binaires regénérables depuis `db/schema.sql`, qui reste la source de vérité.
