@@ -14,3 +14,8 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# Modeles MySQL Workbench : binaires, regenerables depuis db/schema.sql
+# (Database > Reverse Engineer). La source de verite reste le DDL.
+*.mwb
+*.mwb.bak
