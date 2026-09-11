@@ -99,23 +99,40 @@ flowchart TD
     I -.échec.-> L[mode dégradé:<br/>getDb retourne null]
 ```
 
-## Deux principes à connaître avant d'ajouter du code
+## Trois principes à connaître avant d'ajouter du code
 
 **1. Aucune base ne bloque le démarrage.**
 Le pool MySQL et le client Mongo se créent au premier usage réel, pas au boot.
 Une base éteinte n'empêche pas le serveur de répondre.
 
-**2. `getDb()` retourne `Db | null`.**
-Le type force à écrire le cas d'échec. Sur les données secondaires (préférences,
-avis), un `null` doit dégrader l'affichage, pas renvoyer une erreur 500.
+**2. Les deux bases n'ont pas le même poids. C'est une décision d'architecture.**
+
+| Base | Contient | Si elle tombe | `/health` |
+|---|---|---|---|
+| MySQL | comptes, trajets, réservations, crédits | plus rien à servir | **503** |
+| MongoDB | préférences de voyage | le reste fonctionne | **200** + drapeau |
+
+Sans MySQL il n'y a ni comptes ni trajets : l'application est morte, elle doit
+le dire. Sans Mongo il manque seulement les préférences : on sert la page et on
+signale la dégradation. Un load balancer lit ce code pour décider s'il envoie du
+trafic — un 200 sans MySQL enverrait des utilisateurs dans le vide.
+
+**3. `getDb()` retourne `Db | null`.**
+Le type force à écrire le cas d'échec. Sur les données secondaires, un `null`
+doit dégrader l'affichage, jamais renvoyer une erreur 500 :
 
 ```ts
 const db = await getDb();
 if (db === null) {
-  // TODO(human): décider quoi afficher quand Mongo est indisponible
-  return;
+  // Mongo indisponible : on affiche le trajet sans les préférences
+  // du chauffeur, plutôt que rien du tout.
+  return { ...trajet, preferences: null };
 }
 ```
+
+Côté MySQL, l'inverse : une erreur remonte et devient un 500. Ne jamais
+l'avaler silencieusement — une réservation perdue sans bruit est pire
+qu'une erreur visible.
 
 ## Secrets
 
