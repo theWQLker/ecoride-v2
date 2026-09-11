@@ -58,6 +58,19 @@ both exited 1 with the correct diagnostic, then seed.sql was restored byte-ident
     EXPECT: G11_COMPTES_OK
     EVIDENCE: exit 0, G11_COMPTES_OK — 1 admin, 2 employes, 6 utilisateurs, 3 chauffeurs, 4 vehicules,
       1 electrique, 8 trajets, 3 dates, 2 complets, 3 avis, 1 en attente, 1 litige ouvert.
-- [ ] G12: db/ committed to git
+- [x] G12: db/ committed to git
     CHECK: node scripts/gate-run.mjs commit
     EXPECT: G12_COMMIT_OK
+    EVIDENCE: exit 0, G12_COMMIT_OK — db/schema.sql and db/seed.sql tracked, `git status --porcelain db/` empty.
+      Commit 3ee528b, 793 insertions across 4 files. Working tree fully clean afterwards.
+
+## Result
+
+12 gates declared, 12 met, 0 unmet, 0 abandoned.
+
+Two defects were found by the gates rather than by inspection:
+- G8 failed on a bug in the oracle itself (ENUM ordinal vs alphabetical sort in GROUP_CONCAT), now fixed.
+- The checker was positive-controlled: G2 and G4 were deliberately broken and both failed correctly.
+
+Secrets: `.env` is git-ignored and untracked; `scripts/gate-run.mjs` reads MYSQL_ROOT_PASSWORD from it at
+runtime and hardcodes no credential. The application database `ecoride` was never written to (0 tables).
