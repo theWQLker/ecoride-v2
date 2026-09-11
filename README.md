@@ -2,8 +2,8 @@
 
 Plateforme de covoiturage. Réécriture Node 22 + TypeScript de la V1 (PHP/Slim).
 
-Ce dépôt est un **squelette** : aucune table SQL, aucune route métier, aucune vue
-au-delà du layout. Il sert de base saine pour construire les fonctionnalités.
+Le schéma relationnel est en place (voir [Base de données](#base-de-données)) ;
+les routes métier et les vues au-delà du layout restent à construire.
 
 ## Stack
 
@@ -98,6 +98,32 @@ flowchart TD
     I -.-> K[(Mongo 7)]
     I -.échec.-> L[mode dégradé:<br/>getDb retourne null]
 ```
+
+## Base de données
+
+| Fichier | Rôle |
+|---|---|
+| [`db/schema.sql`](db/schema.sql) | DDL MySQL 8.4, rejouable (`DROP IF EXISTS` en tête). **Source de vérité.** |
+| [`db/seed.sql`](db/seed.sql) | jeu de données de démonstration, `INSERT` uniquement |
+| [`db/mcd.mmd`](db/mcd.mmd) | **MCD** — diagramme entité-association (Mermaid `erDiagram`) |
+
+Le MCD reflète exactement `schema.sql` : 7 tables, clés primaires, clés
+étrangères et types. `schema.sql` fait foi — toute évolution du DDL doit être
+reportée dans `db/mcd.mmd`.
+
+```bash
+# Création du schéma puis chargement des données de démonstration
+docker compose exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" ecoride < db/schema.sql
+docker compose exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" ecoride < db/seed.sql
+```
+
+Deux règles sont portées par le SGBD et non par le code applicatif :
+
+- **un trajet n'utilise que le véhicule de son chauffeur** — clé étrangère
+  composite `trajets (vehicule_id, chauffeur_id) → vehicules (id, user_id)` ;
+  toute tentative contraire est rejetée en `ERROR 1452` ;
+- **un compte n'est jamais supprimé** — `users.deleted_at` horodate
+  l'anonymisation, afin de préserver l'historique et la comptabilité.
 
 ## Trois principes à connaître avant d'ajouter du code
 

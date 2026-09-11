@@ -1,0 +1,127 @@
+---
+title: EcoRide V2 — Modèle conceptuel de données (MCD)
+---
+%% =====================================================================
+%% Source de vérité : db/schema.sql. Ce diagramme en est le reflet exact
+%% et n'ajoute aucune table, colonne ni relation qui n'y figure pas.
+%% Toute modification de schema.sql doit être reportée ici.
+%%
+%% Conventions de lecture :
+%%   PK / FK / UK          = clé primaire / étrangère / unique
+%%   ||--o{  = un vers plusieurs, côté enfant facultatif
+%%   ||--o|  = un vers zéro-ou-un (contrainte UNIQUE sur la FK)
+%%   |o--o{  = zéro-ou-un vers plusieurs (colonne FK NULLable)
+%%
+%% Les types sont ceux déclarés en DDL. La syntaxe Mermaid n'admettant
+%% ni parenthèses ni virgules dans un type, ils sont transcrits ainsi :
+%%   INT_UNSIGNED <- INT UNSIGNED     CHAR_60 <- CHAR(60)
+%%   VARCHAR_50   <- VARCHAR(50)      ENUM_... <- ENUM('...','...')
+%% =====================================================================
+erDiagram
+
+    users {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        VARCHAR_50 pseudo UK "NOT NULL"
+        VARCHAR_180 email UK "NOT NULL"
+        CHAR_60 mot_de_passe "NOT NULL, hash bcrypt"
+        ENUM_utilisateur_employe_admin type_compte "NOT NULL, defaut utilisateur"
+        BOOLEAN est_passager "NOT NULL, defaut TRUE"
+        BOOLEAN est_chauffeur "NOT NULL, defaut FALSE"
+        INT credits "NOT NULL, defaut 20"
+        BOOLEAN suspendu "NOT NULL, defaut FALSE"
+        DATETIME created_at "NOT NULL, defaut CURRENT_TIMESTAMP"
+        DATETIME deleted_at "NULL, anonymisation RGPD"
+    }
+
+    vehicules {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        INT_UNSIGNED user_id FK "NOT NULL, UK avec id"
+        VARCHAR_15 immatriculation UK "NOT NULL"
+        DATE date_immat "NOT NULL"
+        VARCHAR_50 marque "NOT NULL"
+        VARCHAR_50 modele "NOT NULL"
+        VARCHAR_30 couleur "NOT NULL"
+        ENUM_electrique_hybride_thermique energie "NOT NULL"
+        INT_UNSIGNED places "NOT NULL"
+    }
+
+    trajets {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        INT_UNSIGNED chauffeur_id FK "NOT NULL"
+        INT_UNSIGNED vehicule_id FK "NOT NULL"
+        VARCHAR_100 ville_depart "NOT NULL, index de recherche"
+        VARCHAR_100 ville_arrivee "NOT NULL, index de recherche"
+        DATETIME depart_at "NOT NULL, index de recherche"
+        DATETIME arrivee_at "NOT NULL"
+        INT_UNSIGNED prix "NOT NULL, en credits"
+        INT_UNSIGNED places_restantes "NOT NULL"
+        ENUM_publie_demarre_termine_annule statut "NOT NULL, defaut publie"
+    }
+
+    reservations {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        INT_UNSIGNED trajet_id FK "NOT NULL, UK avec passager_id"
+        INT_UNSIGNED passager_id FK "NOT NULL, UK avec trajet_id"
+        ENUM_en_attente_acceptee_refusee_terminee_annulee statut "NOT NULL, defaut en_attente"
+        DATETIME created_at "NOT NULL, defaut CURRENT_TIMESTAMP"
+    }
+
+    avis {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        INT_UNSIGNED reservation_id FK,UK "NOT NULL, un seul avis par reservation"
+        INT_UNSIGNED note "NOT NULL, CHECK entre 1 et 5"
+        TEXT commentaire "NULL"
+        ENUM_en_attente_valide_refuse statut_moderation "NOT NULL, defaut en_attente"
+    }
+
+    litiges {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        INT_UNSIGNED reservation_id FK "NOT NULL"
+        TEXT description "NOT NULL"
+        ENUM_ouvert_resolu statut "NOT NULL, defaut ouvert"
+        INT_UNSIGNED employe_id FK "NULL tant que non assigne"
+    }
+
+    mouvements_credits {
+        INT_UNSIGNED id PK "AUTO_INCREMENT"
+        INT_UNSIGNED user_id FK "NULL = mouvement plateforme"
+        INT_UNSIGNED reservation_id FK "NULL hors reservation"
+        INT montant "NOT NULL, signe"
+        ENUM_dotation_debit_reservation_commission_transfert_chauffeur_remboursement type "NOT NULL"
+        DATETIME created_at "NOT NULL, defaut CURRENT_TIMESTAMP"
+    }
+
+    %% --- Clés étrangères, dans l'ordre de déclaration de schema.sql ---
+
+    %% fk_vehicules_user — ON DELETE CASCADE
+    users ||--o{ vehicules : "possede"
+
+    %% fk_trajets_chauffeur — ON DELETE CASCADE
+    users ||--o{ trajets : "publie comme chauffeur"
+
+    %% fk_trajets_vehicule_proprietaire — ON DELETE RESTRICT
+    %% FK COMPOSITE (vehicule_id, chauffeur_id) -> vehicules (id, user_id) :
+    %% une seule contrainte, qui impose qu'un trajet n'utilise que le
+    %% vehicule de SON propre chauffeur.
+    vehicules ||--o{ trajets : "sert a, couple (id, user_id)"
+
+    %% fk_reservations_trajet — ON DELETE CASCADE
+    trajets ||--o{ reservations : "recoit"
+
+    %% fk_reservations_passager — ON DELETE CASCADE
+    users ||--o{ reservations : "reserve comme passager"
+
+    %% fk_avis_reservation — ON DELETE CASCADE, FK UNIQUE
+    reservations ||--o| avis : "donne lieu a"
+
+    %% fk_litiges_reservation — ON DELETE CASCADE
+    reservations ||--o{ litiges : "fait l objet de"
+
+    %% fk_litiges_employe — ON DELETE SET NULL, colonne NULLable
+    users |o--o{ litiges : "traite comme employe"
+
+    %% fk_mouvements_user — ON DELETE CASCADE, colonne NULLable
+    users |o--o{ mouvements_credits : "credite ou debite"
+
+    %% fk_mouvements_reservation — ON DELETE SET NULL, colonne NULLable
+    reservations |o--o{ mouvements_credits : "justifie"
