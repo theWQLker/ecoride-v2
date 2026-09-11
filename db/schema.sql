@@ -127,9 +127,20 @@ CREATE TABLE reservations (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   trajet_id   INT UNSIGNED NOT NULL,
   passager_id INT UNSIGNED NOT NULL,
-  statut      ENUM('en_attente','acceptee','refusee','terminee','annulee')
+  -- Cycle de vie complet d'une réservation (décision crédits 2026-09-11).
+  -- Une annulation tardive ne rend pas la place : d'où un statut distinct.
+  statut      ENUM('en_attente','confirmee','refusee','annulee','annulee_tardive',
+                   'terminee','a_regulariser','en_litige','cloturee','remboursee')
               NOT NULL DEFAULT 'en_attente',
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- Horodatage de l'annulation : c'est lui qui, comparé à depart_at,
+  -- sépare une annulation normale d'une annulation tardive.
+  annulee_at  DATETIME NULL DEFAULT NULL,
+  -- Déclaration d'arrivée par le passager : point de départ du délai
+  -- de 48 h au terme duquel la réservation peut être clôturée.
+  arrivee_declaree_at DATETIME NULL DEFAULT NULL,
+  -- Clôture effective : c'est elle qui déclenche la commission.
+  cloturee_at DATETIME NULL DEFAULT NULL,
   PRIMARY KEY (id),
   -- Un passager ne réserve qu'une seule fois le même trajet.
   UNIQUE KEY uq_reservations_trajet_passager (trajet_id, passager_id),
@@ -173,6 +184,9 @@ CREATE TABLE litiges (
   id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
   reservation_id INT UNSIGNED NOT NULL,
   description    TEXT NOT NULL,
+  -- Les dossiers « à régulariser » rejoignent la même file que les
+  -- incidents signalés : une seule table, deux origines possibles.
+  origine        ENUM('signalement_passager','regularisation') NOT NULL,
   statut         ENUM('ouvert','resolu') NOT NULL DEFAULT 'ouvert',
   -- NULL tant qu'aucun employé n'a pris le dossier en charge.
   employe_id     INT UNSIGNED NULL,

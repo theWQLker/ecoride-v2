@@ -17,10 +17,12 @@ both exited 1 with the correct diagnostic, then seed.sql was restored byte-ident
     CHECK: node scripts/gate-run.mjs solde
     EXPECT: G2_SOLDE_OK
     EVIDENCE: exit 0, G2_SOLDE_OK — 0 discrepancies across all 9 users.
-- [x] G3: total commissions equals 2 x number of trajets, and every commission row has user_id NULL
+- [x] G3: total commissions equals 2 x number of CLOSED reservations, every commission row user_id NULL
     CHECK: node scripts/gate-run.mjs commission
     EXPECT: G3_COMMISSION_OK
-    EVIDENCE: exit 0, G3_COMMISSION_OK — 0 commission rows with non-NULL user_id; total 16 = 2 x 8 trajets.
+    EVIDENCE: exit 0, G3_COMMISSION_OK — 0 commission rows with non-NULL user_id; 5 lines,
+      total 10 = 2 x 5 clôturées. Rule changed 2026-09-11: the commission is levied at closure,
+      not at trajet publication (the earlier "2 x trajets" evidence is superseded).
 - [x] G4: every dotation is exactly 20 credits, for every user (US7)
     CHECK: node scripts/gate-run.mjs dotation
     EXPECT: G4_DOTATION_OK
@@ -39,12 +41,14 @@ both exited 1 with the correct diagnostic, then seed.sql was restored byte-ident
     CHECK: node scripts/gate-run.mjs proprio
     EXPECT: G7_PROPRIO_OK
     EVIDENCE: exit 0, G7_PROPRIO_OK — 0 trajets whose vehicule.user_id <> chauffeur_id, 8 trajets total.
-- [x] G8: the 5 reservation statuses remain covered
+- [x] G8: the 10 reservation statuses are all covered by the dataset
     CHECK: node scripts/gate-run.mjs statuts
     EXPECT: G8_STATUTS_OK
-    EVIDENCE: exit 0, G8_STATUTS_OK. First run failed on a bug in the ORACLE, not the data:
-      GROUP_CONCAT(DISTINCT ... ORDER BY) sorts an ENUM by ordinal position, not alphabetically.
-      Rewritten as an order-independent set comparison; all 5 statuses present.
+    EVIDENCE: exit 0, G8_STATUTS_OK. All 10 ENUM values present, counted individually:
+      en_attente 2, confirmee 3, refusee 1, annulee 1, annulee_tardive 1, terminee 1,
+      a_regulariser 2, en_litige 1, cloturee 5, remboursee 1.
+      An earlier run failed on a bug in the ORACLE, not the data: GROUP_CONCAT(DISTINCT ... ORDER BY)
+      sorts an ENUM by ordinal position, not alphabetically. Rewritten as a set comparison.
 - [x] G9: no user holds a negative credit balance
     CHECK: node scripts/gate-run.mjs negatif
     EXPECT: G9_NEGATIF_OK
@@ -52,12 +56,30 @@ both exited 1 with the correct diagnostic, then seed.sql was restored byte-ident
 - [x] G10: places_restantes equals vehicle capacity minus occupying reservations, on all trajets
     CHECK: node scripts/gate-run.mjs places
     EXPECT: G10_PLACES_OK
-    EVIDENCE: exit 0, G10_PLACES_OK — 0 mismatches across the 8 trajets.
+    EVIDENCE: exit 0, G10_PLACES_OK — 0 mismatches across the 8 trajets. Occupancy rule updated
+      2026-09-11: a reservation occupies a seat when its status is confirmee, annulee_tardive
+      or cloturee. A LATE cancellation does NOT return its seat — verified on reservation 13
+      (cancelled 1 h before departure): trajet 5 shows 2 seats left on a 3-seat vehicle, and
+      0 remboursement rows exist for it.
 - [x] G11: seed counts still match the CP5 spec
     CHECK: node scripts/gate-run.mjs comptes
     EXPECT: G11_COMPTES_OK
-    EVIDENCE: exit 0, G11_COMPTES_OK — 1 admin, 2 employes, 6 utilisateurs, 3 chauffeurs, 4 vehicules,
+    EVIDENCE: exit 0, G11_COMPTES_OK — 1 admin, 2 employes, 7 utilisateurs, 3 chauffeurs, 4 vehicules,
       1 electrique, 8 trajets, 3 dates, 2 complets, 3 avis, 1 en attente, 1 litige ouvert.
+      7 utilisateurs (was 6): manon.faure added for the US6 insufficient-balance case.
+
+## Demonstration cases required by the 2026-09-11 credits decision
+
+Verified by direct query against the rebuilt scratch DB, not by inspection:
+
+- **US6, insufficient balance** — manon.faure holds 5 credits; trajet 4 (Paris→Lille) costs 12
+  and has 4 free seats. Query verdict: "REFUS ATTENDU (solde insuffisant)".
+- **Late cancellation, seat not returned** — reservation 13, cancelled 1 h before departure
+  (annulee_at 2026-03-15 08:30 vs depart_at 10:15). Vehicle capacity 3, occupants 1,
+  places_restantes 2. Zero remboursement rows: the debit stays acquired.
+- **a_regulariser + regularisation litige** — reservations 14 (Kevin) and 15 (Manon), each paired
+  with a litige of origine='regularisation' (litiges 2 and 3), both statut='ouvert', and each with
+  0 rows in mouvements_credits: an unhonoured balance produces a case file, not a phantom debit.
 - [x] G12: db/ committed to git
     CHECK: node scripts/gate-run.mjs commit
     EXPECT: G12_COMMIT_OK

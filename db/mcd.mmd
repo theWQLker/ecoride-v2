@@ -16,6 +16,12 @@ title: EcoRide V2 — Modèle conceptuel de données (MCD)
 %% ni parenthèses ni virgules dans un type, ils sont transcrits ainsi :
 %%   INT_UNSIGNED <- INT UNSIGNED     CHAR_60 <- CHAR(60)
 %%   VARCHAR_50   <- VARCHAR(50)      ENUM_... <- ENUM('...','...')
+%%
+%% reservations.statut, ENUM_10_valeurs, dans l'ordre du DDL :
+%%   en_attente, confirmee, refusee, annulee, annulee_tardive,
+%%   terminee, a_regulariser, en_litige, cloturee, remboursee
+%% (nom abrege : la concatenation des 10 valeurs depasserait la
+%%  lisibilite d'un type Mermaid.)
 %% =====================================================================
 erDiagram
 
@@ -62,8 +68,11 @@ erDiagram
         INT_UNSIGNED id PK "AUTO_INCREMENT"
         INT_UNSIGNED trajet_id FK "NOT NULL, UK avec passager_id"
         INT_UNSIGNED passager_id FK "NOT NULL, UK avec trajet_id"
-        ENUM_en_attente_acceptee_refusee_terminee_annulee statut "NOT NULL, defaut en_attente"
+        ENUM_10_valeurs statut "NOT NULL, defaut en_attente, cycle de vie complet"
         DATETIME created_at "NOT NULL, defaut CURRENT_TIMESTAMP"
+        DATETIME annulee_at "NULL, distingue annulation normale et tardive"
+        DATETIME arrivee_declaree_at "NULL, point de depart du delai de 48 h"
+        DATETIME cloturee_at "NULL, declenche la commission"
     }
 
     avis {
@@ -78,6 +87,7 @@ erDiagram
         INT_UNSIGNED id PK "AUTO_INCREMENT"
         INT_UNSIGNED reservation_id FK "NOT NULL"
         TEXT description "NOT NULL"
+        ENUM_signalement_passager_regularisation origine "NOT NULL, meme file pour les deux"
         ENUM_ouvert_resolu statut "NOT NULL, defaut ouvert"
         INT_UNSIGNED employe_id FK "NULL tant que non assigne"
     }

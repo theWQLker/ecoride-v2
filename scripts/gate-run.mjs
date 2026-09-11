@@ -74,17 +74,18 @@ const checks = {
     ok('G2_SOLDE_OK');
   },
 
-  // G3 — commissions : toutes à user_id NULL, et total = 2 x nombre de trajets.
+  // G3 — commissions : toutes à user_id NULL, et total = 2 x réservations clôturées.
+  // La commission est prélevée à la CLÔTURE, pas à la publication du trajet.
   commission() {
     rebuild();
     const nonNull = q(`SELECT COUNT(*) FROM mouvements_credits
                        WHERE type='commission' AND user_id IS NOT NULL`);
     if (nonNull !== '0') return fail(`${nonNull} ligne(s) commission avec user_id non NULL`);
     const total = q(`SELECT COALESCE(SUM(montant),0) FROM mouvements_credits WHERE type='commission'`);
-    const trajets = q(`SELECT COUNT(*) FROM trajets`);
-    const attendu = 2 * Number(trajets);
+    const cloturees = q(`SELECT COUNT(*) FROM reservations WHERE statut='cloturee'`);
+    const attendu = 2 * Number(cloturees);
     if (Number(total) !== attendu) {
-      return fail(`commissions = ${total}, attendu 2 x ${trajets} trajets = ${attendu}`);
+      return fail(`commissions = ${total}, attendu 2 x ${cloturees} clôturées = ${attendu}`);
     }
     ok('G3_COMMISSION_OK');
   },
@@ -154,7 +155,9 @@ const checks = {
     // pas alphabétiquement : on compare donc des ensembles, pas des chaînes.
     const got = q(`SELECT DISTINCT statut FROM reservations`)
       .split('\n').map(s => s.trim()).filter(Boolean).sort();
-    const want = ['acceptee', 'annulee', 'en_attente', 'refusee', 'terminee'];
+    const want = ['a_regulariser', 'annulee', 'annulee_tardive', 'cloturee',
+                  'confirmee', 'en_attente', 'en_litige', 'refusee',
+                  'remboursee', 'terminee'];
     const manquants = want.filter(s => !got.includes(s));
     if (manquants.length) {
       return fail(`statut(s) absent(s) : ${manquants.join(', ')} — présents : ${got.join(', ')}`);
@@ -177,7 +180,8 @@ const checks = {
     const bad = q(`SELECT GROUP_CONCAT(CONCAT('trajet ',id,' declare ',places_restantes,' calcule ',calc))
       FROM (SELECT t.id, t.places_restantes,
                    v.places - (SELECT COUNT(*) FROM reservations r
-                               WHERE r.trajet_id=t.id AND r.statut IN ('acceptee','terminee')) AS calc
+                               WHERE r.trajet_id=t.id
+                                 AND r.statut IN ('confirmee','annulee_tardive','cloturee')) AS calc
             FROM trajets t JOIN vehicules v ON v.id=t.vehicule_id) x
       WHERE places_restantes <> calc`);
     if (bad && bad !== 'NULL') return fail(`places_restantes incohérent : ${bad}`);
@@ -190,7 +194,7 @@ const checks = {
     const attendu = {
       admin: ["SELECT COUNT(*) FROM users WHERE type_compte='admin'", '1'],
       employes: ["SELECT COUNT(*) FROM users WHERE type_compte='employe'", '2'],
-      utilisateurs: ["SELECT COUNT(*) FROM users WHERE type_compte='utilisateur'", '6'],
+      utilisateurs: ["SELECT COUNT(*) FROM users WHERE type_compte='utilisateur'", '7'],
       chauffeurs: ['SELECT COUNT(*) FROM users WHERE est_chauffeur=TRUE', '3'],
       vehicules: ['SELECT COUNT(*) FROM vehicules', '4'],
       electrique: ["SELECT COUNT(*) FROM vehicules WHERE energie='electrique'", '1'],
